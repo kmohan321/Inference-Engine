@@ -52,8 +52,13 @@ int main() {
     Workspace* arena = &arena_obj;
     arena->allocate(1024ULL * 1024ULL * 1024ULL); 
 
+    KV_Cache kv_cache;
     int b = 1;
+    int max_seq_len = 4096; // Set this to your KV Cache capacity
     int max_new_tokens = 2048;
+
+    // Allocate the massive KV Cache grid ONCE before the chat loop starts
+    kv_cache.allocate(cfg->num_layers, b, cfg->num_kv_heads, max_seq_len, cfg->head_dim);
 
     // Continuous Chat Loop
     while (true) {
@@ -72,11 +77,21 @@ int main() {
         std::vector<int> input_ids = tokenizer.encode(formatted_prompt);
         std::cout << "Model: ";
 
+        // -----------------------------------------------------------------
+        // KV CACHE LOGIC SETUP
+        // -----------------------------------------------------------------
+        // 'current_chunk' holds the tokens we send to the GPU in the current pass.
+        // For the very first pass, we send the ENTIRE prompt.
+        std::vector<int> current_chunk = input_ids;
+        
+        // This tracks our absolute position in the KV cache memory grid.
+        int current_cache_pos = 0; 
+
         // Generation Loop
         for (int step = 0; step < max_new_tokens; step++) {
-            int s = input_ids.size();
+            int s = current_chunk.size();
 
-            // 1. Prepare Input Token Tensor
+            // 1. Prepare Input Token Tensor (Size is 's', which becomes 1 after the first step!)
             Tensor token_ids = {0};
             token_ids.ndim = 2;
             token_ids.shape[0] = b;
@@ -86,8 +101,7 @@ int main() {
             token_ids.nbytes = b * s * sizeof(int);
             cudaMalloc(&token_ids.gpu_data, token_ids.nbytes);
             
-            // Notice: using input_ids.data() to get the raw array pointer from the std::vector
-            cudaMemcpy(token_ids.gpu_data, input_ids.data(), token_ids.nbytes, cudaMemcpyHostToDevice);
+            cudaMemcpy(token_ids.gpu_data, current_chunk.data(), token_ids.nbytes, cudaMemcpyHostToDevice);
 
             // 2. Prepare Logits Tensor
             Tensor logits = {0};
@@ -103,13 +117,15 @@ int main() {
 
             // 3. Run Forward Pass
             arena->reset(); 
-            llm->forward(&arena_obj, cfg, &token_ids, &logits);
+            // Pass the kv_cache, max_seq_len, and our absolute cache position
+            llm->forward(&arena_obj, &kv_cache, cfg, &token_ids, &logits, max_seq_len, current_cache_pos);
             cudaDeviceSynchronize();
 
             // 4. Fetch only the logits for the very last token in the sequence
             float* cpu_logits = (float*)malloc(cfg->vocab_size * sizeof(float));
             int last_token_offset = (s - 1) * cfg->vocab_size;
             cudaMemcpy(cpu_logits, ((float*)logits.gpu_data) + last_token_offset, cfg->vocab_size * sizeof(float), cudaMemcpyDeviceToHost);
+            
             // 5. Pick the best token
             int next_token_id = get_next_token(cpu_logits, cfg->vocab_size);
             free(cpu_logits);
@@ -119,7 +135,6 @@ int main() {
             cudaFree(logits.gpu_data);
 
             // Break if the model outputs the EOS (End of Sequence) token. 
-            // Note: '2' is standard for Llama/Mistral, check your tokenizer.json if it differs.
             if (next_token_id == 151645 || next_token_id == 151643) {
                 break; 
             }
@@ -128,13 +143,21 @@ int main() {
             std::string piece = tokenizer.decode(next_token_id);
             std::cout << piece << std::flush;
 
-            // 7. Append the new token to the context so the model sees it on the next loop
-            input_ids.push_back(next_token_id);
+            // -----------------------------------------------------------------
+            // KV CACHE UPDATES FOR NEXT GENERATION STEP
+            // -----------------------------------------------------------------
+            // Shift our cache pointer forward by the number of tokens we just processed
+            current_cache_pos += s;
+            
+            // MAGIC TRICK: For the next loop iteration, we ONLY send the 1 new token! 
+            // The KV cache holds everything else.
+            current_chunk = { next_token_id };
         }
         std::cout << std::endl;
     }
 
     // Final Cleanup
+    kv_cache.free_memory();
     arena->destroy();
     delete llm;
     free(db);

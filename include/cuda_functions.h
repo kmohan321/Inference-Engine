@@ -19,7 +19,7 @@ void norm_forward(Tensor *x, Tensor *out, Tensor *norm_weight, Tensor *norm_bias
 
 void mm_t_forward(Tensor *A, Tensor *B, Tensor *C);
 
-void rope_forward(Tensor *x, Tensor *out, Tensor *freqs);
+void rope_forward(Tensor *x, Tensor *out, Tensor *freqs, int step);
 
 void transpose(Tensor *input, const int *index);
 
@@ -31,7 +31,8 @@ void softmax_forward(Tensor *input);
 
 void attention_forward(Tensor *x, Model *model, Tensor *freqs,
     int i, int head_dim, int q_heads, int kv_heads, float eps,
-    Tensor *q, Tensor *k, Tensor *v, Tensor *q_rope, Tensor *k_rope, Tensor * v_rope, Tensor *scores, Tensor *out);
+    Tensor *q, Tensor *k, Tensor *v, Tensor *q_rope, Tensor *k_rope, Tensor * v_rope, Tensor *scores, 
+    Tensor *out, KV_Cache* cache, int step, int max_s, bool is_causal);
 
 void elem_forward_add(Tensor *a, Tensor *b);
 

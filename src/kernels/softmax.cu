@@ -45,15 +45,16 @@ extern "C" void softmax_forward(Tensor *input){
 
   int batch = input->shape[0];
   int heads = input->shape[1];
-  int s = input->shape[2];
+  int row = input->shape[2];
+  int col = input->shape[3];
   
-  dim3 grid(s, batch * heads);
+  dim3 grid(row, batch * heads);
 
   softmax_kernel<<<grid,1>>>(
       (float*)input->gpu_data,
       batch * heads,
-      s,
-      s
+      row,
+      col
   );
 
 }

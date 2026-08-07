@@ -108,7 +108,8 @@ public:
     virtual ~BaseModel() = default;
 
     virtual void build_model(ModelConfig* cfg, void* db) = 0;
-    virtual void forward(void* arena, ModelConfig* cfg, Tensor* input_ids, Tensor* logits) = 0;
+    virtual void forward(void* arena, void* kv_cache, ModelConfig* cfg, 
+        Tensor* input, Tensor* output, int max_seq_len, int step) = 0;
 };
 
 #endif

@@ -6,7 +6,7 @@ __global__ void fused_rope_and_permute_kernel(
     const float* __restrict__ in_q, 
     float* __restrict__ out_q, 
     const float* __restrict__ freqs, // shape: [s, d/2]
-    int b, int s, int nh, int d) 
+    int b, int s, int nh, int d, int step) 
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int total_elements = b * s * nh * d;
@@ -26,8 +26,7 @@ __global__ void fused_rope_and_permute_kernel(
     float q0 = in_q[idx];
     float q1 = in_q[pair_idx];
 
-
-    int freq_idx = s_idx * half_d + d_idx;
+    int freq_idx = (s_idx + step) * half_d + d_idx;
     float m_theta = freqs[freq_idx];
 
     float cos_val = cosf(m_theta);
@@ -41,7 +40,7 @@ __global__ void fused_rope_and_permute_kernel(
     out_q[out_base_idx + d_idx + half_d] = q1_rotated;
 }
 
-extern "C" void rope_forward(Tensor *x, Tensor *out, Tensor *freqs) {
+extern "C" void rope_forward(Tensor *x, Tensor *out, Tensor *freqs, int step) {
 
     int B = x->shape[0];
     int S = x->shape[1];
@@ -50,14 +49,14 @@ extern "C" void rope_forward(Tensor *x, Tensor *out, Tensor *freqs) {
     
     int total_elements = B * S * Nh * D;
 
-    dim3 threads(32 * 32);
-    dim3 blocks((total_elements + 1023)/1024);
+    dim3 threads(256);
+    dim3 blocks((total_elements + 255)/256);
 
     fused_rope_and_permute_kernel<<<blocks, threads>>>(
         (float*)x->gpu_data, 
         (float*)out->gpu_data,
         (float*)freqs->gpu_data, 
-        B, S, Nh, D
+        B, S, Nh, D, step
     );
 }
 

@@ -4,7 +4,6 @@
 #include "model_def.h"
 #include "cuda_functions.h"
 #include "buffer.h"
-// #include <cuda_runtime.h>
 
 class QwenModel : public BaseModel{
   private:
@@ -60,9 +59,10 @@ class QwenModel : public BaseModel{
 
     }
 
-    void forward(void* raw_arena, ModelConfig* cfg, Tensor* token_ids, Tensor* logits){
+    void forward(void* raw_arena, void * kv_cache, ModelConfig* cfg, Tensor* token_ids, Tensor* logits, int max_s, int step){
 
       Workspace* arena = (Workspace*)raw_arena;
+      KV_Cache* cache = (KV_Cache*)kv_cache;
 
       int b = token_ids->shape[0];
       int s = token_ids->shape[1];
@@ -72,9 +72,9 @@ class QwenModel : public BaseModel{
       Tensor *x = tensor_empty(x_shape, 3, arena);
       embedding_forward(model.embed_weight, token_ids, x);
 
-      int shape[2] = {s, cfg->head_dim/2};
+      int shape[2] = {max_s, cfg->head_dim/2};
       Tensor *freqs = tensor_empty(shape, 2, arena);
-      generate_rope_freqs(freqs, s, cfg->head_dim, cfg->rope_theta);
+      generate_rope_freqs(freqs, max_s, cfg->head_dim, cfg->rope_theta);
 
       Tensor* norm_out = tensor_empty_like(x, arena);
       Tensor* out = tensor_empty_like(x, arena);
@@ -95,8 +95,10 @@ class QwenModel : public BaseModel{
       Tensor *k_rope = tensor_empty(kv_rope_shape, 4, arena);
       Tensor *v_rope = tensor_empty(kv_rope_shape, 4, arena);
 
-      int score_shape[4] = {b, cfg->num_heads, s, s};
+      int score_shape[4] = {b, cfg->num_heads, s, s + step};
       Tensor *scores = tensor_empty(score_shape, 4, arena);
+
+      bool is_causal = (s > 1);
 
       for(int i = 0; i < cfg->num_layers; i++){
 
@@ -113,7 +115,8 @@ class QwenModel : public BaseModel{
         norm_forward(x, norm_out, atten_norm_weight, atten_norm_bias, b, s, d, cfg->rms_norm_eps, true);
 
         attention_forward(norm_out, &model, freqs, i, cfg->head_dim, cfg->num_heads, 
-          cfg->num_kv_heads, cfg->rms_norm_eps, q, k, v, q_rope, k_rope, v_rope, scores, temp_out);
+          cfg->num_kv_heads, cfg->rms_norm_eps, q, k, v, q_rope, k_rope, v_rope, scores, temp_out, 
+          cache, step, max_s, is_causal);
       
         elem_forward_add(x, norm_out);
 

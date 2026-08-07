@@ -119,7 +119,7 @@ __global__ void matrix_mul_t_gqa(const float * __restrict__ a,
             for (int q = 0; q < 4; q++) {
                 int global_col = block_n + tx * 4 + q;
                 if (global_col < n) {
-                  if (global_col > global_row) {
+                  if (is_causal && global_col > global_row) {
                         C_batch[global_row * n + global_col] = -1e9f; 
                     } else {
                         C_batch[global_row * n + global_col] = reg[p][q] * scale;
