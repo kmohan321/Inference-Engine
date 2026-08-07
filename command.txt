@@ -1,0 +1,23 @@
+ cmake -B build -DCMAKE_BUILD_TYPE=Release
+ cmake --build build --config Release
+  .build\Release\inference_engine.exe  
+
+Logit[0]: 7.655713
+
+Logit[1]: 9.871868
+
+Logit[2]: 8.975479
+
+Logit[3]: 8.259996
+
+Logit[4]: 8.188614
+
+Logit[5]: 8.119081
+
+Logit[6]: 4.553972
+
+Logit[7]: 7.626038
+
+Logit[8]: 7.672641
+
+Logit[9]: 8.134947
